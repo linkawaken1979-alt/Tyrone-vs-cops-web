@@ -1,0 +1,404 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>TYRONE vs COPS</title>
+
+<style>
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #101014;
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: #f2f2f2;
+  user-select: none;
+  touch-action: none;
+}
+
+#unity-container {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+
+#unity-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  outline: none;
+}
+
+#loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #101014;
+  z-index: 2;
+  transition: opacity .4s ease;
+}
+
+#loader.done {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#loader h1 {
+  margin: 0 0 22px;
+  font-size: 30px;
+  letter-spacing: 4px;
+  font-weight: 800;
+  text-transform: uppercase;
+  background: linear-gradient(
+    90deg,
+    #ff0000, #ff8800, #ffff00, #00ff00,
+    #00ffff, #0088ff, #aa00ff, #ff0088, #ff0000
+  );
+  background-size: 300% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: rainbow 4s linear infinite;
+}
+
+@keyframes rainbow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 300% 50%; }
+}
+
+#bar {
+  width: min(360px, 80vw);
+  height: 12px;
+  background: #23232b;
+  border: 1px solid #41414c;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+#fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    #ff0000, #ff8800, #ffff00, #00ff00,
+    #00ffff, #0088ff, #aa00ff, #ff0088
+  );
+  background-size: 300% 100%;
+  border-radius: 20px;
+  transition: width .15s linear;
+  animation: rainbow 3s linear infinite;
+}
+
+#status {
+  margin-top: 17px;
+  font-size: 14px;
+  letter-spacing: 1.5px;
+  min-height: 20px;
+  background: linear-gradient(
+    90deg, #ff5555, #ffcc55, #55ff99,
+    #55ccff, #cc77ff, #ff5599
+  );
+  background-size: 300% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: rainbow 4s linear infinite;
+}
+
+#percentage {
+  margin-top: 8px;
+  color: #aaaab8;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+#warning {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  z-index: 3;
+  text-align: center;
+  font-size: 13px;
+  color: #ff7777;
+  white-space: pre-wrap;
+  padding: 0 20px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="unity-container">
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+
+  <div id="loader">
+    <h1>TYRONE vs COPS</h1>
+    <div id="bar"><div id="fill"></div></div>
+    <div id="status">Initializing...</div>
+    <div id="percentage">0%</div>
+  </div>
+</div>
+
+<div id="warning"></div>
+
+<script>
+(function () {
+"use strict";
+
+/* Repository URLs */
+var RAW_BASE =
+  "https://raw.githubusercontent.com/linkawaken1979-alt/Tyrone-vs-cops-web/main/";
+
+var CDN_BASE =
+  "https://cdn.jsdelivr.net/gh/linkawaken1979-alt/Tyrone-vs-cops-web@main/";
+
+var DATA_PARTS = 32;
+var WASM_PARTS = 3;
+
+var container = document.getElementById("unity-container");
+var canvas = document.getElementById("unity-canvas");
+var loader = document.getElementById("loader");
+var fill = document.getElementById("fill");
+var status = document.getElementById("status");
+var percentage = document.getElementById("percentage");
+var warning = document.getElementById("warning");
+
+var completed = 0;
+var total = DATA_PARTS + WASM_PARTS;
+var objectURLs = [];
+
+function rawURL(path) {
+  return new URL(path, RAW_BASE).href;
+}
+
+function cdnURL(path) {
+  return new URL(path, CDN_BASE).href;
+}
+
+function setProgress(value, message) {
+  value = Math.max(0, Math.min(100, Math.round(value)));
+  fill.style.width = value + "%";
+  percentage.textContent = value + "%";
+
+  if (message) status.textContent = message;
+}
+
+function showWarning(message) {
+  warning.textContent = message;
+  status.textContent = "Loading failed";
+  console.error(message);
+}
+
+async function fetchChecked(url) {
+  var response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(
+      "HTTP " + response.status + ": " + url
+    );
+  }
+
+  return response;
+}
+
+/* Download split files from GitHub Raw */
+async function loadChunks(filename, count) {
+  var chunks = [];
+
+  for (var i = 0; i < count; i++) {
+    var part = String(i).padStart(3, "0");
+
+    var url = rawURL(
+      "Build/" + filename + ".part" + part
+    );
+
+    status.textContent =
+      "Downloading " + filename +
+      " (" + (i + 1) + "/" + count + ")";
+
+    var response = await fetchChecked(url);
+    chunks.push(await response.arrayBuffer());
+
+    completed++;
+
+    setProgress(
+      completed / total * 65,
+      "Downloading game files..."
+    );
+  }
+
+  return new Blob(chunks, {
+    type: "application/octet-stream"
+  });
+}
+
+/* Prepare Unity configuration */
+async function prepareBuild() {
+  setProgress(0, "Preparing game...");
+
+  var response = await fetchChecked(
+    rawURL("Build/WebGL.json")
+  );
+
+  var config = await response.json();
+
+  var dataBlob = await loadChunks(
+    "WebGL.data.unityweb",
+    DATA_PARTS
+  );
+
+  setProgress(65, "Downloading WebGL code...");
+
+  var wasmBlob = await loadChunks(
+    "WebGL.wasm.code.unityweb",
+    WASM_PARTS
+  );
+
+  var dataURL = URL.createObjectURL(dataBlob);
+  var wasmURL = URL.createObjectURL(wasmBlob);
+
+  objectURLs.push(dataURL, wasmURL);
+
+  var replacedData = false;
+  var replacedWasm = false;
+
+  /*
+   * Framework stays on jsDelivr.
+   * Data and WASM code use reconstructed Blob URLs.
+   * Other relative assets use GitHub Raw.
+   */
+  Object.keys(config).forEach(function(key) {
+    var value = config[key];
+
+    if (typeof value !== "string") return;
+
+    if (value.indexOf("WebGL.data.unityweb") !== -1) {
+      config[key] = dataURL;
+      replacedData = true;
+    }
+    else if (value.indexOf("WebGL.wasm.code.unityweb") !== -1) {
+      config[key] = wasmURL;
+      replacedWasm = true;
+    }
+    else if (value.indexOf("WebGL.wasm.framework.unityweb") !== -1) {
+      config[key] = cdnURL(
+        "Build/WebGL.wasm.framework.unityweb"
+      );
+    }
+    else if (!/^(blob:|data:|https?:|\/\/)/i.test(value)) {
+      config[key] = rawURL(
+        value.replace(/^\.?\//, "")
+      );
+    }
+  });
+
+  if (!replacedData || !replacedWasm) {
+    throw new Error(
+      "Could not find dataUrl or wasmCodeUrl in WebGL.json."
+    );
+  }
+
+  var configBlob = new Blob(
+    [JSON.stringify(config)],
+    { type: "application/json" }
+  );
+
+  var configURL = URL.createObjectURL(configBlob);
+  objectURLs.push(configURL);
+
+  setProgress(70, "Starting Unity...");
+
+  return configURL;
+}
+
+/* Start Unity */
+function startUnity(configURL) {
+  if (
+    typeof UnityLoader === "undefined" ||
+    !UnityLoader.instantiate
+  ) {
+    throw new Error("UnityLoader.js failed to initialize.");
+  }
+
+  UnityLoader.instantiate(container, configURL, {
+    onProgress: function(progress) {
+      var pct = 70 + progress * 30;
+
+      setProgress(
+        pct,
+        progress >= 1 ? "Starting game..." : "Loading game..."
+      );
+
+      if (progress >= 1) {
+        loader.className = "done";
+        canvas.focus();
+
+        setTimeout(function() {
+          loader.style.display = "none";
+        }, 450);
+      }
+    },
+
+    onError: function(message) {
+      showWarning(String(message));
+    },
+
+    webglContextAttributes: {
+      alpha: false,
+      antialias: false,
+      depth: true,
+      stencil: true,
+      premultipliedAlpha: true,
+      preserveDrawingBuffer: false,
+      powerPreference: "high-performance"
+    }
+  });
+}
+
+async function boot() {
+  try {
+    var configURL = await prepareBuild();
+    startUnity(configURL);
+  } catch(error) {
+    showWarning(
+      error && error.message ? error.message : String(error)
+    );
+  }
+}
+
+/* Load UnityLoader.js through jsDelivr */
+var script = document.createElement("script");
+
+script.src = cdnURL("Build/UnityLoader.js");
+script.async = true;
+
+script.onload = boot;
+
+script.onerror = function() {
+  showWarning(
+    "Could not load UnityLoader.js from jsDelivr."
+  );
+};
+
+document.body.appendChild(script);
+
+window.addEventListener("contextmenu", function(event) {
+  event.preventDefault();
+});
+
+})();
+</script>
+
+</body>
+</html>
